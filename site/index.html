@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>norjobs — Norwegian Labour Market Explorer</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    background: #1a1d27;
+    border-bottom: 1px solid #2d3148;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #a78bfa;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+  }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    flex: 1;
+  }
+
+  label {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    white-space: nowrap;
+  }
+
+  select, input[type="text"] {
+    background: #252836;
+    border: 1px solid #3d4166;
+    color: #e2e8f0;
+    font-size: 0.8rem;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    outline: none;
+  }
+
+  select:focus, input[type="text"]:focus {
+    border-color: #a78bfa;
+  }
+
+  input[type="text"] {
+    width: 160px;
+  }
+
+  input[type="text"]::placeholder {
+    color: #64748b;
+  }
+
+  #treemap-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  #treemap-svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .tile rect {
+    stroke: #0f1117;
+    stroke-width: 1px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .tile rect.dimmed {
+    opacity: 0.15;
+  }
+
+  .tile rect.selected {
+    stroke: #fff;
+    stroke-width: 2px;
+  }
+
+  .tile text {
+    pointer-events: none;
+    dominant-baseline: hanging;
+    user-select: none;
+  }
+
+  .tile .label-name {
+    font-size: 11px;
+    fill: rgba(255,255,255,0.9);
+    font-weight: 600;
+  }
+
+  .tile .label-code {
+    font-size: 9px;
+    fill: rgba(255,255,255,0.55);
+  }
+
+  .group-label {
+    pointer-events: none;
+    font-size: 13px;
+    font-weight: 700;
+    fill: rgba(255,255,255,0.35);
+    dominant-baseline: hanging;
+    user-select: none;
+  }
+
+  #detail-panel {
+    background: #1a1d27;
+    border-top: 1px solid #2d3148;
+    padding: 12px 16px;
+    font-size: 0.82rem;
+    display: none;
+    flex-shrink: 0;
+  }
+
+  #detail-panel.visible {
+    display: block;
+  }
+
+  #detail-panel h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #f1f5f9;
+  }
+
+  .detail-grid {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .detail-label {
+    font-size: 0.7rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .detail-value {
+    color: #e2e8f0;
+    font-weight: 500;
+  }
+
+  #legend {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-left: auto;
+    flex-wrap: wrap;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    color: #94a3b8;
+  }
+
+  .legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  .legend-bar {
+    width: 80px;
+    height: 8px;
+    border-radius: 2px;
+  }
+
+  #close-detail {
+    float: right;
+    cursor: pointer;
+    color: #64748b;
+    font-size: 1.2rem;
+    line-height: 1;
+    margin-left: 8px;
+  }
+
+  #close-detail:hover { color: #e2e8f0; }
+
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    font-size: 1rem;
+    background: #0f1117;
+  }
+
+  #error-msg {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: #f87171;
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 32px;
+    background: #0f1117;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>norjobs</h1>
+  <div class="controls">
+    <label>Color by
+      <select id="color-select">
+        <option value="wage">Median wage</option>
+        <option value="female">Female share</option>
+        <option value="public">Public sector</option>
+        <option value="edu">Education</option>
+        <option value="ai" id="ai-option" disabled>AI score</option>
+      </select>
+    </label>
+    <label>Group by
+      <select id="group-select">
+        <option value="major">Major group</option>
+        <option value="none">No grouping</option>
+      </select>
+    </label>
+    <input type="text" id="search" placeholder="Search occupation...">
+  </div>
+  <div id="legend"></div>
+</header>
+
+<div id="treemap-container">
+  <div id="loading">Loading data...</div>
+  <div id="error-msg"></div>
+  <svg id="treemap-svg"></svg>
+</div>
+
+<div id="detail-panel">
+  <span id="close-detail" title="Close">&#215;</span>
+  <h2 id="dp-name"></h2>
+  <div class="detail-grid">
+    <div class="detail-item"><span class="detail-label">STYRK code</span><span class="detail-value" id="dp-code"></span></div>
+    <div class="detail-item"><span class="detail-label">Major group</span><span class="detail-value" id="dp-group"></span></div>
+    <div class="detail-item"><span class="detail-label">Employed</span><span class="detail-value" id="dp-employed"></span></div>
+    <div class="detail-item"><span class="detail-label">Median wage</span><span class="detail-value" id="dp-wage"></span></div>
+    <div class="detail-item"><span class="detail-label">Female share</span><span class="detail-value" id="dp-female"></span></div>
+    <div class="detail-item"><span class="detail-label">Public sector</span><span class="detail-value" id="dp-public"></span></div>
+    <div class="detail-item"><span class="detail-label">Education (most common)</span><span class="detail-value" id="dp-edu"></span></div>
+    <div class="detail-item" id="dp-ai-item" style="display:none">
+      <span class="detail-label">AI score</span><span class="detail-value" id="dp-ai"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // -------------------------------------------------------------------------
+  // Color scales
+  // -------------------------------------------------------------------------
+
+  const EDU_COLORS = {
+    "no_formal": "#64748b",
+    "primary": "#94a3b8",
+    "lower_secondary": "#60a5fa",
+    "upper_secondary": "#34d399",
+    "post_secondary": "#a78bfa",
+    "bachelor": "#f472b6",
+    "master": "#fb923c",
+    "doctoral": "#facc15",
+    "unspecified": "#475569",
+  };
+
+  const EDU_LABELS = {
+    "no_formal": "No formal",
+    "primary": "Primary",
+    "lower_secondary": "Lower sec.",
+    "upper_secondary": "Upper sec.",
+    "post_secondary": "Post-sec.",
+    "bachelor": "Bachelor",
+    "master": "Master",
+    "doctoral": "Doctoral",
+    "unspecified": "Unspecified",
+  };
+
+  function buildColorScales(data) {
+    const wages = data.map(d => d.median_monthly_wage).filter(v => v != null);
+    const wageScale = d3.scaleSequential()
+      .domain([d3.min(wages), d3.max(wages)])
+      .interpolator(d3.interpolateBlues)
+      .unknown("#334155");
+
+    const femaleScale = d3.scaleDiverging()
+      .domain([0, 0.5, 1])
+      .interpolator(d3.interpolateRdBu)
+      .unknown("#334155");
+
+    const publicScale = d3.scaleSequential()
+      .domain([0, 1])
+      .interpolator(d3.interpolatePurples)
+      .unknown("#334155");
+
+    const aiScores = data.map(d => d.ai_score).filter(v => v != null);
+    const aiScale = aiScores.length
+      ? d3.scaleDiverging()
+          .domain([0, 5, 10])
+          .interpolator(d3.interpolateRdYlGn)
+          .unknown("#334155")
+      : null;
+
+    return { wageScale, femaleScale, publicScale, aiScale };
+  }
+
+  function getColor(d, colorMode, scales) {
+    switch (colorMode) {
+      case "wage":   return scales.wageScale(d.median_monthly_wage);
+      case "female": return scales.femaleScale(d.pct_female);
+      case "public": return scales.publicScale(d.pct_public_sector);
+      case "edu":    return EDU_COLORS[d.edu_level_mode] || "#334155";
+      case "ai":     return scales.aiScale ? scales.aiScale(d.ai_score) : "#334155";
+      default:       return "#334155";
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Legend
+  // -------------------------------------------------------------------------
+
+  function renderLegend(colorMode, scales, hasAI) {
+    const legend = document.getElementById("legend");
+    legend.innerHTML = "";
+
+    function bar(interpolator, label0, label1) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 80; canvas.height = 8;
+      const ctx = canvas.getContext("2d");
+      for (let i = 0; i < 80; i++) {
+        ctx.fillStyle = d3.color(interpolator(i / 79)) || "#000";
+        ctx.fillRect(i, 0, 1, 8);
+      }
+      const wrap = document.createElement("div");
+      wrap.className = "legend-item";
+      wrap.innerHTML = `<span style="font-size:0.65rem;color:#64748b">${label0}</span>`;
+      wrap.appendChild(canvas);
+      wrap.innerHTML += `<span style="font-size:0.65rem;color:#64748b">${label1}</span>`;
+      legend.appendChild(wrap);
+    }
+
+    if (colorMode === "wage") {
+      const [lo, hi] = scales.wageScale.domain();
+      bar(d3.interpolateBlues, `${Math.round(lo/1000)}k`, `${Math.round(hi/1000)}k NOK`);
+    } else if (colorMode === "female") {
+      bar(d3.interpolateRdBu, "0%", "100% female");
+    } else if (colorMode === "public") {
+      bar(d3.interpolatePurples, "0%", "100% public");
+    } else if (colorMode === "ai" && hasAI) {
+      bar(d3.interpolateRdYlGn, "0 (auto)", "10 (safe)");
+    } else if (colorMode === "edu") {
+      Object.entries(EDU_LABELS).forEach(([key, label]) => {
+        const item = document.createElement("div");
+        item.className = "legend-item";
+        item.innerHTML = `<span class="legend-swatch" style="background:${EDU_COLORS[key]}"></span>${label}`;
+        legend.appendChild(item);
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Treemap
+  // -------------------------------------------------------------------------
+
+  let selectedCode = null;
+  let searchQuery = "";
+
+  function buildHierarchy(data, groupMode) {
+    if (groupMode === "none") {
+      return { name: "root", children: data };
+    }
+    // Group by major_group
+    const groups = d3.group(data, d => d.major_group);
+    return {
+      name: "root",
+      children: Array.from(groups, ([mg, children]) => ({
+        name: String(mg),
+        major_group_name: children[0]?.major_group_name || `Group ${mg}`,
+        children,
+      })),
+    };
+  }
+
+  function render(data, colorMode, groupMode, scales) {
+    const container = document.getElementById("treemap-container");
+    const svg = d3.select("#treemap-svg");
+    svg.selectAll("*").remove();
+
+    const W = container.clientWidth;
+    const H = container.clientHeight;
+    svg.attr("width", W).attr("height", H);
+
+    const root = d3.hierarchy(buildHierarchy(data, groupMode))
+      .sum(d => d.employed || 0)
+      .sort((a, b) => b.value - a.value);
+
+    d3.treemap()
+      .size([W, H])
+      .tile(d3.treemapSquarify)
+      .paddingOuter(groupMode === "none" ? 1 : 3)
+      .paddingTop(groupMode === "none" ? 0 : 18)
+      .paddingInner(1)
+      (root);
+
+    const leaves = root.leaves();
+
+    // Group borders
+    if (groupMode !== "none") {
+      svg.selectAll(".group-border")
+        .data(root.children || [])
+        .join("g")
+        .attr("class", "group-border")
+        .each(function(d) {
+          d3.select(this).append("rect")
+            .attr("x", d.x0).attr("y", d.y0)
+            .attr("width", d.x1 - d.x0).attr("height", d.y1 - d.y0)
+            .attr("fill", "none")
+            .attr("stroke", "#3d4166")
+            .attr("stroke-width", 1);
+          d3.select(this).append("text")
+            .attr("class", "group-label")
+            .attr("x", d.x0 + 4).attr("y", d.y0 + 3)
+            .text(`${d.data.name} · ${d.data.major_group_name}`);
+        });
+    }
+
+    // Leaf tiles
+    const tile = svg.selectAll(".tile")
+      .data(leaves, d => d.data.code)
+      .join("g")
+      .attr("class", "tile")
+      .attr("transform", d => `translate(${d.x0},${d.y0})`);
+
+    const w = d => d.x1 - d.x0;
+    const h = d => d.y1 - d.y0;
+
+    // Match search
+    const matchSearch = d => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        (d.data.name || "").toLowerCase().includes(q) ||
+        (d.data.name_no || "").toLowerCase().includes(q) ||
+        (d.data.code || "").includes(q)
+      );
+    };
+
+    tile.append("rect")
+      .attr("width", d => Math.max(0, w(d)))
+      .attr("height", d => Math.max(0, h(d)))
+      .attr("fill", d => getColor(d.data, colorMode, scales))
+      .classed("dimmed", d => !matchSearch(d))
+      .classed("selected", d => d.data.code === selectedCode)
+      .on("click", (event, d) => {
+        selectedCode = d.data.code;
+        showDetail(d.data);
+        // Re-render to update selected
+        svg.selectAll(".tile rect")
+          .classed("selected", nd => nd.data.code === selectedCode);
+      });
+
+    // Labels — show if tile is large enough
+    tile.each(function(d) {
+      const tw = w(d), th = h(d);
+      const area = tw * th;
+      if (area < 1500) return;
+      const g = d3.select(this);
+      if (tw > 30 && th > 16) {
+        g.append("text")
+          .attr("class", "label-name")
+          .attr("x", 3).attr("y", 3)
+          .attr("width", tw - 6)
+          .text(truncate(d.data.name, tw, 11));
+      }
+      if (tw > 40 && th > 30) {
+        g.append("text")
+          .attr("class", "label-code")
+          .attr("x", 3).attr("y", 16)
+          .text(d.data.code);
+      }
+    });
+  }
+
+  function truncate(text, widthPx, fontSize) {
+    if (!text) return "";
+    // Approximate: ~0.55 * fontSize per character
+    const maxChars = Math.floor(widthPx / (fontSize * 0.58));
+    return text.length <= maxChars ? text : text.slice(0, maxChars - 1) + "…";
+  }
+
+  // -------------------------------------------------------------------------
+  // Detail panel
+  // -------------------------------------------------------------------------
+
+  function fmt(v, suffix = "") {
+    return v != null ? `${Number(v).toLocaleString("no-NO")}${suffix}` : "—";
+  }
+
+  function showDetail(d) {
+    document.getElementById("dp-name").textContent = d.name + (d.name_no && d.name_no !== d.name ? ` / ${d.name_no}` : "");
+    document.getElementById("dp-code").textContent = d.code;
+    document.getElementById("dp-group").textContent = d.major_group != null ? `${d.major_group} — ${d.major_group_name || ""}` : "—";
+    document.getElementById("dp-employed").textContent = d.employed != null ? d.employed.toLocaleString("no-NO") : "—";
+    document.getElementById("dp-wage").textContent = d.median_monthly_wage != null ? `${d.median_monthly_wage.toLocaleString("no-NO")} kr/mnd` : "—";
+    document.getElementById("dp-female").textContent = d.pct_female != null ? `${(d.pct_female * 100).toFixed(1)}%` : "—";
+    document.getElementById("dp-public").textContent = d.pct_public_sector != null ? `${(d.pct_public_sector * 100).toFixed(1)}%` : "—";
+    document.getElementById("dp-edu").textContent = d.edu_level_mode ? (EDU_LABELS[d.edu_level_mode] || d.edu_level_mode) : "—";
+
+    const aiItem = document.getElementById("dp-ai-item");
+    if (d.ai_score != null) {
+      aiItem.style.display = "";
+      document.getElementById("dp-ai").textContent = `${d.ai_score.toFixed(1)} / 10${d.ai_rationale ? " — " + d.ai_rationale : ""}`;
+    } else {
+      aiItem.style.display = "none";
+    }
+
+    document.getElementById("detail-panel").classList.add("visible");
+  }
+
+  document.getElementById("close-detail").addEventListener("click", () => {
+    document.getElementById("detail-panel").classList.remove("visible");
+    selectedCode = null;
+    document.querySelectorAll(".tile rect.selected").forEach(el => el.classList.remove("selected"));
+  });
+
+  // -------------------------------------------------------------------------
+  // Main
+  // -------------------------------------------------------------------------
+
+  async function main() {
+    const loadingEl = document.getElementById("loading");
+    const errorEl = document.getElementById("error-msg");
+
+    let data;
+    try {
+      const resp = await fetch("./data.json");
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+      data = await resp.json();
+    } catch (err) {
+      loadingEl.style.display = "none";
+      errorEl.style.display = "flex";
+      errorEl.textContent = `Failed to load data.json: ${err.message}\n\nMake sure you have run build_site_data.py and are serving from a web server (not file://).`;
+      return;
+    }
+
+    loadingEl.style.display = "none";
+
+    // Check if AI scores are present
+    const hasAI = data.some(d => d.ai_score != null);
+    if (hasAI) {
+      document.getElementById("ai-option").disabled = false;
+    }
+
+    const scales = buildColorScales(data);
+
+    let colorMode = "wage";
+    let groupMode = "major";
+
+    function fullRender() {
+      render(data, colorMode, groupMode, scales);
+      renderLegend(colorMode, scales, hasAI);
+    }
+
+    fullRender();
+
+    document.getElementById("color-select").addEventListener("change", e => {
+      colorMode = e.target.value;
+      fullRender();
+    });
+
+    document.getElementById("group-select").addEventListener("change", e => {
+      groupMode = e.target.value;
+      fullRender();
+    });
+
+    document.getElementById("search").addEventListener("input", e => {
+      searchQuery = e.target.value.trim();
+      // Only re-render tiles (no layout change needed)
+      const scales2 = scales;
+      const matchSearch = d => {
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
+        return (
+          (d.data.name || "").toLowerCase().includes(q) ||
+          (d.data.name_no || "").toLowerCase().includes(q) ||
+          (d.data.code || "").includes(q)
+        );
+      };
+      d3.selectAll(".tile rect")
+        .classed("dimmed", d => !matchSearch(d));
+    });
+
+    window.addEventListener("resize", () => {
+      fullRender();
+    });
+  }
+
+  main();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+{
+  "version": "2.0",
+  "class": "dataset",
+  "label": "Employed persons, by occupation (STYRK-08), sex and age",
+  "source": "Statistics Norway",
+  "updated": "2024-06-01",
+  "id": ["Yrke", "Kjonn", "Alder", "Tid"],
+  "size": [4, 3, 1, 1],
+  "dimension": {
+    "Yrke": {
+      "label": "Occupation (STYRK-08)",
+      "category": {
+        "index": {"2111": 0, "2112": 1, "5120": 2, "9112": 3},
+        "label": {
+          "2111": "Physicists and astronomers",
+          "2112": "Meteorologists and related professionals",
+          "5120": "Cooks",
+          "9112": "Cleaning and laundry workers"
+        }
+      }
+    },
+    "Kjonn": {
+      "label": "Sex",
+      "category": {
+        "index": {"0": 0, "1": 1, "2": 2},
+        "label": {"0": "Both sexes", "1": "Males", "2": "Females"}
+      }
+    },
+    "Alder": {
+      "label": "Age",
+      "category": {
+        "index": {"15-74": 0},
+        "label": {"15-74": "15-74 years"}
+      }
+    },
+    "Tid": {
+      "label": "Year",
+      "category": {
+        "index": {"2023": 0},
+        "label": {"2023": "2023"}
+      }
+    }
+  },
+  "value": [
+    1240, 750, 490,
+    380, 300, 80,
+    18500, 7400, 11100,
+    12000, 3600, 8400
+  ],
+  "role": {
+    "time": ["Tid"],
+    "geo": [],
+    "metric": []
+  }
+}

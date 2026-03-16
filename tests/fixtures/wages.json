@@ -1,0 +1,63 @@
+{
+  "version": "2.0",
+  "class": "dataset",
+  "label": "Earnings, by occupation (STYRK-08 2-digit), sector and employment type",
+  "source": "Statistics Norway",
+  "updated": "2024-06-01",
+  "id": ["Yrke", "Sektor", "StatistikkVariabel", "Tid"],
+  "size": [3, 3, 3, 1],
+  "dimension": {
+    "Yrke": {
+      "label": "Occupation (STYRK-08, 2-digit)",
+      "category": {
+        "index": {"21": 0, "51": 1, "91": 2},
+        "label": {
+          "21": "Physical, mathematical and technical science professionals",
+          "51": "Personal service and protective service workers",
+          "91": "Sales and services elementary occupations"
+        }
+      }
+    },
+    "Sektor": {
+      "label": "Sector",
+      "category": {
+        "index": {"0": 0, "1": 1, "2": 2},
+        "label": {"0": "All sectors", "1": "Public sector", "2": "Private sector"}
+      }
+    },
+    "StatistikkVariabel": {
+      "label": "Statistics variable",
+      "category": {
+        "index": {"MedianMaanedlig": 0, "GjennomsnittMaanedlig": 1, "Ansatte": 2},
+        "label": {
+          "MedianMaanedlig": "Median monthly earnings",
+          "GjennomsnittMaanedlig": "Average monthly earnings",
+          "Ansatte": "Employees"
+        }
+      }
+    },
+    "Tid": {
+      "label": "Year",
+      "category": {
+        "index": {"2023": 0},
+        "label": {"2023": "2023"}
+      }
+    }
+  },
+  "value": [
+    72000, 75000, 1620,
+    68000, 71000, 900,
+    70000, 72500, 720,
+    38000, 40000, 22200,
+    36000, 38000, 8000,
+    39000, 41000, 14200,
+    34000, 35000, 14400,
+    33000, 34000, 5000,
+    35000, 36000, 9400
+  ],
+  "role": {
+    "time": ["Tid"],
+    "geo": [],
+    "metric": []
+  }
+}

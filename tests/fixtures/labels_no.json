@@ -1,0 +1,14 @@
+{
+  "codes": [
+    {"code": "2", "name": "Professionals"},
+    {"code": "5", "name": "Service- og salgsarbeid"},
+    {"code": "9", "name": "Elementære yrker"},
+    {"code": "21", "name": "Fysikere, sivilingeniører og beslektede"},
+    {"code": "51", "name": "Servitører, kokker og næringsmiddelarbeidere"},
+    {"code": "91", "name": "Renholdere og hjelpearbeidere"},
+    {"code": "2111", "name": "Fysikere og astronomer"},
+    {"code": "2112", "name": "Meteorologer"},
+    {"code": "5120", "name": "Kokker"},
+    {"code": "9112", "name": "Renholdere"}
+  ]
+}

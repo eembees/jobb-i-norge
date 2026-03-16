@@ -1,0 +1,54 @@
+{
+  "version": "2.0",
+  "class": "dataset",
+  "label": "Employed persons, by occupation (STYRK-08) and education level",
+  "source": "Statistics Norway",
+  "updated": "2024-06-01",
+  "id": ["Yrke", "Utdnivaa", "Tid"],
+  "size": [4, 5, 1],
+  "dimension": {
+    "Yrke": {
+      "label": "Occupation (STYRK-08)",
+      "category": {
+        "index": {"2111": 0, "2112": 1, "5120": 2, "9112": 3},
+        "label": {
+          "2111": "Physicists and astronomers",
+          "2112": "Meteorologists and related professionals",
+          "5120": "Cooks",
+          "9112": "Cleaning and laundry workers"
+        }
+      }
+    },
+    "Utdnivaa": {
+      "label": "Education level",
+      "category": {
+        "index": {"0": 0, "3": 1, "5": 2, "6": 3, "8": 4},
+        "label": {
+          "0": "no_formal",
+          "3": "upper_secondary",
+          "5": "bachelor",
+          "6": "master",
+          "8": "unspecified"
+        }
+      }
+    },
+    "Tid": {
+      "label": "Year",
+      "category": {
+        "index": {"2023": 0},
+        "label": {"2023": "2023"}
+      }
+    }
+  },
+  "value": [
+    10, 30, 100, 1050, 50,
+    5, 20, 60, 280, 15,
+    200, 10500, 4000, 1500, 300,
+    1800, 6000, 2000, 900, 1300
+  ],
+  "role": {
+    "time": ["Tid"],
+    "geo": [],
+    "metric": []
+  }
+}
