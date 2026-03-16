@@ -1,0 +1,20 @@
+[project]
+name = "jobb-i-norge"
+version = "0.1.0"
+description = "Norwegian labour market explorer — SSB data pipeline + D3 treemap"
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "pandas",
+    "anthropic",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests requiring network access and/or API keys (deselect with -m 'not integration')",
+]
