@@ -16,16 +16,16 @@ DATA_RAW = os.path.join(os.path.dirname(__file__), "data", "raw")
 BASE = "https://data.ssb.no/api/pxwebapi/v2/tables/{id}/data"
 
 TABLES = {
-    "occupations": "13114",  # Employees by occupation (STYRK-08 4-digit)
-    "wages": "11611",        # Monthly wages by occupation
-    "education": "12629",    # Occupation × education level
+    "occupations": "11658",  # Employees, jobs and earnings by occupation (STYRK-08 4-digit)
+    "wages": "11418",        # Monthly earnings by occupation, sector and sex
+    "education": "12849",    # Employed persons by occupation (2-digit) and education level
 }
 
 # Query parameters shared by all tables
 COMMON_PARAMS = {
     "lang": "en",
     "outputformat": "json-stat2",
-    "valueCodes[Tid]": "top(1)",  # latest year only
+    "valueCodes[Tid]": "top(1)",  # latest period only
 }
 
 # Per-table extra value codes to pull all occupation codes and other dimensions
@@ -33,14 +33,23 @@ TABLE_PARAMS: dict[str, dict] = {
     "occupations": {
         "valueCodes[Yrke]": "*",
         "valueCodes[Kjonn]": "*",
+        "valueCodes[Alder]": "999D",        # All ages aggregate
+        "valueCodes[ContentsCode]": "Lonsstakere",  # Employee headcount only
     },
     "wages": {
         "valueCodes[Yrke]": "*",
         "valueCodes[Sektor]": "*",
+        "valueCodes[Kjonn]": "0",           # Both sexes
+        "valueCodes[AvtaltVanlig]": "0",    # All employees
+        "valueCodes[MaaleMetode]": "01",    # Median
+        "valueCodes[ContentsCode]": "Manedslonn",  # Monthly earnings
     },
     "education": {
         "valueCodes[Yrke]": "*",
-        "valueCodes[Utdnivaa]": "*",
+        "valueCodes[UtdNivaa]": "*",
+        "valueCodes[Fagfelt]": "*",
+        "valueCodes[Alder]": "15-74",       # Main working-age group
+        "valueCodes[ContentsCode]": "Lonnstakere",
     },
 }
 
