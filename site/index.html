@@ -45,6 +45,10 @@
     flex: 1;
   }
 
+  .control-hidden {
+    display: none;
+  }
+
   label {
     font-size: 0.75rem;
     color: #94a3b8;
@@ -305,7 +309,15 @@
     <label>Group by
       <select id="group-select">
         <option value="major">Major group</option>
+        <option value="ranked">Ranked</option>
         <option value="none">No grouping</option>
+      </select>
+    </label>
+    <label id="rank-select-wrap" class="control-hidden">Rank by
+      <select id="rank-select">
+        <option value="female">Female share</option>
+        <option value="public">Public sector</option>
+        <option value="edu">Education</option>
       </select>
     </label>
     <input type="text" id="search" placeholder="Search occupation...">
@@ -517,6 +529,9 @@
     if (groupMode === "none") {
       return { name: "root", children: data };
     }
+    if (groupMode === "ranked") {
+      return { name: "root", children: data };
+    }
     // Group by major_group
     const groups = d3.group(data, d => d.major_group);
     return {
@@ -524,12 +539,153 @@
       children: Array.from(groups, ([mg, children]) => ({
         name: String(mg),
         major_group_name: children[0]?.major_group_name || `Group ${mg}`,
+        employed_total: d3.sum(children, c => c.employed || 0),
         children,
       })),
     };
   }
 
-  function render(data, colorMode, groupMode, scales) {
+  function getRankValue(d, rankMode) {
+    if (rankMode === "female") return d.pct_female;
+    if (rankMode === "public") return d.pct_public_sector;
+    if (rankMode === "edu") {
+      const order = {
+        no_formal: 0,
+        primary: 1,
+        lower_secondary: 2,
+        upper_secondary: 3,
+        post_secondary: 4,
+        bachelor: 5,
+        master: 6,
+        doctoral: 7,
+        unspecified: 8,
+      };
+      return d.edu_level_mode != null ? order[d.edu_level_mode] ?? 8 : null;
+    }
+    return null;
+  }
+
+  function buildRankedLeaves(data, W, H, rankMode) {
+    const columnCount = rankMode === "edu" ? 9 : 12;
+    const innerPad = 1;
+    const columnGap = 2;
+    const topInset = 18;
+    const usableHeight = Math.max(0, H - topInset);
+    const totalArea = Math.max(0, W * usableHeight);
+    const totalEmployed = d3.sum(data, d => d.employed || 0) || 1;
+    const columnWidth = Math.max(8, (W - columnGap * (columnCount - 1)) / columnCount);
+
+    const buckets = Array.from({ length: columnCount }, () => []);
+    for (const d of data) {
+      const value = getRankValue(d, rankMode);
+      let bucketIndex;
+      if (value == null || Number.isNaN(value)) {
+        bucketIndex = columnCount - 1;
+      } else if (rankMode === "edu") {
+        bucketIndex = Math.max(0, Math.min(columnCount - 1, Math.round(value)));
+      } else {
+        bucketIndex = Math.max(0, Math.min(columnCount - 1, Math.floor(value * columnCount)));
+      }
+      buckets[bucketIndex].push(d);
+    }
+
+    const leaves = [];
+    buckets.forEach((bucket, bucketIndex) => {
+      const x0 = bucketIndex * (columnWidth + columnGap);
+      const x1 = bucketIndex === columnCount - 1 ? W : Math.min(W, x0 + columnWidth);
+      let yCursor = H;
+      bucket
+        .slice()
+        .sort((a, b) => (b.employed || 0) - (a.employed || 0))
+        .forEach(d => {
+          const area = ((d.employed || 0) / totalEmployed) * totalArea;
+          const height = Math.max(3, area / Math.max(1, x1 - x0));
+          const y1 = yCursor;
+          const y0 = Math.max(topInset, y1 - height);
+          if (y0 < H && y1 > topInset) {
+            leaves.push({
+              data: d,
+              x0,
+              x1,
+              y0: Math.max(topInset, y0),
+              y1: Math.min(H, y1 - innerPad),
+            });
+          }
+          yCursor = y0 - innerPad;
+        });
+    });
+
+    return leaves.filter(d => d.x1 > d.x0 && d.y1 > d.y0);
+  }
+
+  function rankedGuide(rankMode) {
+    if (rankMode === "female") {
+      return ["More male", "More female"];
+    }
+    if (rankMode === "public") {
+      return ["More private", "More public"];
+    }
+    return ["Lower education", "Higher education"];
+  }
+
+  function drawTiles(svg, leaves, colorMode, scales) {
+    const tile = svg.selectAll(".tile")
+      .data(leaves, d => d.data.code)
+      .join("g")
+      .attr("class", "tile")
+      .attr("transform", d => `translate(${d.x0},${d.y0})`);
+
+    const w = d => d.x1 - d.x0;
+    const h = d => d.y1 - d.y0;
+
+    const matchSearch = d => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        (d.data.name || "").toLowerCase().includes(q) ||
+        (d.data.name_no || "").toLowerCase().includes(q) ||
+        (d.data.code || "").includes(q)
+      );
+    };
+
+    tile.append("rect")
+      .attr("width", d => Math.max(0, w(d)))
+      .attr("height", d => Math.max(0, h(d)))
+      .attr("fill", d => getColor(d.data, colorMode, scales))
+      .classed("dimmed", d => !matchSearch(d))
+      .classed("selected", d => d.data.code === selectedCode)
+      .on("mouseenter", (event, d) => showHoverCard(event, d.data))
+      .on("mousemove", (event, d) => showHoverCard(event, d.data))
+      .on("mouseleave", hideHoverCard)
+      .on("click", (event, d) => {
+        selectedCode = d.data.code;
+        showDetail(d.data);
+        svg.selectAll(".tile rect")
+          .classed("selected", nd => nd.data.code === selectedCode);
+      });
+
+    tile.each(function(d) {
+      const tw = w(d), th = h(d);
+      const area = tw * th;
+      if (area < 1500) return;
+      const g = d3.select(this);
+      if (tw > 30 && th > 16) {
+        g.append("text")
+          .attr("class", "label-name")
+          .attr("x", 3).attr("y", 3)
+          .attr("width", tw - 6)
+          .text(truncate(d.data.name, tw, 11));
+      }
+      if (tw > 40 && th > 30) {
+        g.append("text")
+          .attr("class", "label-code")
+          .attr("x", 3).attr("y", 16)
+          .text(d.data.code);
+      }
+    });
+  }
+
+  function render(data, colorMode, groupMode, rankMode, scales) {
     const container = document.getElementById("treemap-container");
     const svg = d3.select("#treemap-svg");
     svg.selectAll("*").remove();
@@ -537,6 +693,18 @@
     const W = container.clientWidth;
     const H = container.clientHeight;
     svg.attr("width", W).attr("height", H);
+
+    if (groupMode === "ranked") {
+      const [leftLabel, rightLabel] = rankedGuide(rankMode);
+      svg.append("text")
+        .attr("class", "group-label")
+        .attr("x", 4)
+        .attr("y", 3)
+        .text(`${leftLabel} → ${rightLabel}`);
+      const leaves = buildRankedLeaves(data, W, H, rankMode);
+      drawTiles(svg, leaves, colorMode, scales);
+      return;
+    }
 
     const root = d3.hierarchy(buildHierarchy(data, groupMode))
       .sum(d => d.employed || 0)
@@ -568,68 +736,11 @@
           d3.select(this).append("text")
             .attr("class", "group-label")
             .attr("x", d.x0 + 4).attr("y", d.y0 + 3)
-            .text(`${d.data.name} · ${d.data.major_group_name}`);
+            .text(`${d.data.name} · ${d.data.major_group_name} · ${d.data.employed_total.toLocaleString("no-NO")}`);
         });
     }
 
-    // Leaf tiles
-    const tile = svg.selectAll(".tile")
-      .data(leaves, d => d.data.code)
-      .join("g")
-      .attr("class", "tile")
-      .attr("transform", d => `translate(${d.x0},${d.y0})`);
-
-    const w = d => d.x1 - d.x0;
-    const h = d => d.y1 - d.y0;
-
-    // Match search
-    const matchSearch = d => {
-      if (!searchQuery) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        (d.data.name || "").toLowerCase().includes(q) ||
-        (d.data.name_no || "").toLowerCase().includes(q) ||
-        (d.data.code || "").includes(q)
-      );
-    };
-
-    tile.append("rect")
-      .attr("width", d => Math.max(0, w(d)))
-      .attr("height", d => Math.max(0, h(d)))
-      .attr("fill", d => getColor(d.data, colorMode, scales))
-      .classed("dimmed", d => !matchSearch(d))
-      .classed("selected", d => d.data.code === selectedCode)
-      .on("mouseenter", (event, d) => showHoverCard(event, d.data))
-      .on("mousemove", (event, d) => showHoverCard(event, d.data))
-      .on("mouseleave", hideHoverCard)
-      .on("click", (event, d) => {
-        selectedCode = d.data.code;
-        showDetail(d.data);
-        // Re-render to update selected
-        svg.selectAll(".tile rect")
-          .classed("selected", nd => nd.data.code === selectedCode);
-      });
-
-    // Labels — show if tile is large enough
-    tile.each(function(d) {
-      const tw = w(d), th = h(d);
-      const area = tw * th;
-      if (area < 1500) return;
-      const g = d3.select(this);
-      if (tw > 30 && th > 16) {
-        g.append("text")
-          .attr("class", "label-name")
-          .attr("x", 3).attr("y", 3)
-          .attr("width", tw - 6)
-          .text(truncate(d.data.name, tw, 11));
-      }
-      if (tw > 40 && th > 30) {
-        g.append("text")
-          .attr("class", "label-code")
-          .attr("x", 3).attr("y", 16)
-          .text(d.data.code);
-      }
-    });
+    drawTiles(svg, leaves, colorMode, scales);
   }
 
   function truncate(text, widthPx, fontSize) {
@@ -707,9 +818,16 @@
 
     let colorMode = "wage";
     let groupMode = "major";
+    let rankMode = "female";
+
+    function syncControlVisibility() {
+      document.getElementById("rank-select-wrap")
+        .classList.toggle("control-hidden", groupMode !== "ranked");
+    }
 
     function fullRender() {
-      render(data, colorMode, groupMode, scales);
+      syncControlVisibility();
+      render(data, colorMode, groupMode, rankMode, scales);
       renderLegend(colorMode, scales, hasAI);
     }
 
@@ -723,6 +841,13 @@
     document.getElementById("group-select").addEventListener("change", e => {
       groupMode = e.target.value;
       fullRender();
+    });
+
+    document.getElementById("rank-select").addEventListener("change", e => {
+      rankMode = e.target.value;
+      if (groupMode === "ranked") {
+        fullRender();
+      }
     });
 
     document.getElementById("search").addEventListener("input", e => {
