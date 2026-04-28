@@ -124,12 +124,12 @@
   }
 
   .group-label {
-    pointer-events: none;
     font-size: 13px;
     font-weight: 700;
     fill: rgba(255,255,255,0.35);
     dominant-baseline: hanging;
     user-select: none;
+    cursor: pointer;
   }
 
   #detail-panel {
@@ -501,6 +501,55 @@
     ];
   }
 
+  function weightedAverage(items, valueKey) {
+    let weighted = 0;
+    let total = 0;
+    items.forEach(item => {
+      const value = item[valueKey];
+      const employed = item.employed || 0;
+      if (value != null && employed > 0) {
+        weighted += value * employed;
+        total += employed;
+      }
+    });
+    return total > 0 ? weighted / total : null;
+  }
+
+  function modeEducation(items) {
+    const totals = new Map();
+    items.forEach(item => {
+      const key = item.edu_level_mode || "unspecified";
+      totals.set(key, (totals.get(key) || 0) + (item.employed || 0));
+    });
+    let bestKey = null;
+    let bestValue = -1;
+    totals.forEach((value, key) => {
+      if (value > bestValue) {
+        bestKey = key;
+        bestValue = value;
+      }
+    });
+    return bestKey;
+  }
+
+  function groupHoverRows(group) {
+    const children = group.children || [];
+    const employedTotal = d3.sum(children, item => item.employed || 0);
+    const wage = weightedAverage(children, "median_monthly_wage");
+    const female = weightedAverage(children, "pct_female");
+    const publicSector = weightedAverage(children, "pct_public_sector");
+    const eduMode = modeEducation(children);
+    return [
+      ["Group", `${group.name} · ${group.major_group_name}`],
+      ["Occupations", children.length.toLocaleString("no-NO")],
+      ["Employed", employedTotal.toLocaleString("no-NO")],
+      ["Median wage", wage != null ? `${Math.round(wage).toLocaleString("no-NO")} kr/mnd` : "—"],
+      ["Female share", formatPercent(female)],
+      ["Public sector", formatPercent(publicSector)],
+      ["Education", eduMode ? (EDU_LABELS[eduMode] || eduMode) : "—"],
+    ];
+  }
+
   function showHoverCard(event, d) {
     const card = document.getElementById("hover-card");
     const container = document.getElementById("treemap-container");
@@ -523,6 +572,25 @@
 
   function hideHoverCard() {
     document.getElementById("hover-card").classList.remove("visible");
+  }
+
+  function showGroupHoverCard(event, group) {
+    const card = document.getElementById("hover-card");
+    const container = document.getElementById("treemap-container");
+    const rows = groupHoverRows(group).map(([label, value]) =>
+      `<span class="hover-label">${label}</span><span class="hover-value">${value}</span>`
+    ).join("");
+    card.innerHTML = `<div class="hover-title">${group.major_group_name}</div><div class="hover-meta">${rows}</div>`;
+    const rect = container.getBoundingClientRect();
+    const x = event.clientX - rect.left + 14;
+    const y = event.clientY - rect.top + 14;
+    card.classList.add("visible");
+    const cardWidth = card.offsetWidth;
+    const cardHeight = card.offsetHeight;
+    const maxX = rect.width - cardWidth - 8;
+    const maxY = rect.height - cardHeight - 8;
+    card.style.left = `${Math.max(8, Math.min(x, maxX))}px`;
+    card.style.top = `${Math.max(8, Math.min(y, maxY))}px`;
   }
 
   function buildHierarchy(data, groupMode) {
@@ -727,16 +795,33 @@
         .join("g")
         .attr("class", "group-border")
         .each(function(d) {
-          d3.select(this).append("rect")
+          const g = d3.select(this);
+          const groupWidth = d.x1 - d.x0;
+          const clipId = `group-clip-${String(d.data.name).replace(/[^a-zA-Z0-9_-]/g, "")}-${Math.round(d.x0)}-${Math.round(d.y0)}`;
+          const label = `${d.data.name} · ${d.data.major_group_name} · ${d.data.employed_total.toLocaleString("no-NO")}`;
+
+          g.append("clipPath")
+            .attr("id", clipId)
+            .append("rect")
+            .attr("x", d.x0 + 2)
+            .attr("y", d.y0 + 1)
+            .attr("width", Math.max(0, groupWidth - 4))
+            .attr("height", 16);
+
+          g.append("rect")
             .attr("x", d.x0).attr("y", d.y0)
             .attr("width", d.x1 - d.x0).attr("height", d.y1 - d.y0)
             .attr("fill", "none")
             .attr("stroke", "#3d4166")
             .attr("stroke-width", 1);
-          d3.select(this).append("text")
+          g.append("text")
             .attr("class", "group-label")
             .attr("x", d.x0 + 4).attr("y", d.y0 + 3)
-            .text(`${d.data.name} · ${d.data.major_group_name} · ${d.data.employed_total.toLocaleString("no-NO")}`);
+            .attr("clip-path", `url(#${clipId})`)
+            .text(truncate(label, Math.max(0, groupWidth - 8), 13))
+            .on("mouseenter", event => showGroupHoverCard(event, d.data))
+            .on("mousemove", event => showGroupHoverCard(event, d.data))
+            .on("mouseleave", hideHoverCard);
         });
     }
 
@@ -747,6 +832,7 @@
     if (!text) return "";
     // Approximate: ~0.55 * fontSize per character
     const maxChars = Math.floor(widthPx / (fontSize * 0.58));
+    if (maxChars <= 1) return "";
     return text.length <= maxChars ? text : text.slice(0, maxChars - 1) + "…";
   }
 
