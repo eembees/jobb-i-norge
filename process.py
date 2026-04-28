@@ -167,7 +167,7 @@ def build_occupations(occ_raw: dict) -> pd.DataFrame:
 
 def build_wages(wages_raw: dict) -> pd.DataFrame:
     """
-    From table 11611 (wages by occupation at 2-digit level), compute:
+    From the wages table (currently SSB 11418), compute:
       styrk2, median_monthly_wage, pct_public_sector, wage_precision
     """
     df = parse_jsonstat2(wages_raw)
@@ -192,11 +192,11 @@ def build_wages(wages_raw: dict) -> pd.DataFrame:
 
     total_sector = _pick_code(
         label_to_code, sector_vals,
-        ["all sectors", "alle sektorer", "total", "0", "alle"]
+        ["sum all sectors", "all sectors", "alle sektorer", "total", "0", "alle"]
     )
-    public_sector = _pick_code(
+    public_sector_codes = _pick_codes(
         label_to_code, sector_vals,
-        ["public sector", "offentlig sektor", "municipal", "state", "1"]
+        ["public sector", "offentlig sektor", "local government", "municipal", "central government", "state", "1"]
     )
 
     # Identify the variable that holds "median monthly wage"
@@ -213,26 +213,59 @@ def build_wages(wages_raw: dict) -> pd.DataFrame:
 
     median_code = _pick_code(
         var_label_to_code, var_vals,
-        ["median monthly earnings", "median månedlig lønn", "median", "medianlønn"]
+        ["monthly earnings", "median monthly earnings", "median månedlig lønn", "median", "medianlønn", "manedslonn"]
     )
+
+    measure_col = None
+    measure_vals: list[str] = []
+    measure_label_to_code: dict[str, str] = {}
+    for candidate in ["MaaleMetode", "maaleMetode", "maalemetode", "measuring method"]:
+        if candidate in df.columns:
+            measure_col = candidate
+            break
+    if measure_col:
+        measure_vals = df[measure_col].unique().tolist()
+        measure_label_col = f"{measure_col}_label"
+        if measure_label_col in df.columns:
+            for code in measure_vals:
+                rows = df.loc[df[measure_col] == code, measure_label_col]
+                if not rows.empty:
+                    measure_label_to_code[rows.iloc[0].lower()] = code
 
     # All-sector median wage per 2-digit code
     wage_df = df[(df[sector_col] == total_sector) & (df[var_col] == median_code)].copy()
+    if measure_col:
+        median_measure_code = _pick_code(
+            measure_label_to_code,
+            measure_vals,
+            ["median", "01"],
+        )
+        wage_df = wage_df[wage_df[measure_col] == median_measure_code].copy()
     wage_df = wage_df.rename(columns={occ_col: "styrk2", "value": "median_monthly_wage"})
     wage_df = wage_df.groupby("styrk2", as_index=False)["median_monthly_wage"].mean()
     wage_df["median_monthly_wage"] = wage_df["median_monthly_wage"].round(0).astype(int)
 
-    # Public sector employment share: public / total employed
-    # Use all-variable (total count) if available, else just flag as unavailable
-    # Try to find an "employed" or "headcount" variable
-    emp_code = _pick_code(
-        var_label_to_code, var_vals,
-        ["employees", "ansatte", "sysselsatte", "employed", "headcount", "antall"]
-    )
+    # Public sector employment share: public / total employed.
+    emp_df = None
+    if measure_col:
+        emp_measure_code = _pick_code(
+            measure_label_to_code,
+            measure_vals,
+            ["number of employments with earnings", "employments with earnings", "number of employments", "10"],
+        )
+        if emp_measure_code:
+            emp_df = df[df[measure_col] == emp_measure_code].copy()
+    else:
+        emp_code = _pick_code(
+            var_label_to_code, var_vals,
+            ["number of employees", "employees", "ansatte", "sysselsatte", "employed", "headcount", "antall", "lonsstakere", "lønnstakere"]
+        )
+        if emp_code:
+            emp_df = df[df[var_col] == emp_code].copy()
 
-    if emp_code and emp_code != median_code:
-        pub_df = df[(df[sector_col] == public_sector) & (df[var_col] == emp_code)].copy()
-        all_df = df[(df[sector_col] == total_sector) & (df[var_col] == emp_code)].copy()
+    if emp_df is not None and public_sector_codes:
+        pub_df = emp_df[emp_df[sector_col].isin(public_sector_codes)].copy()
+        all_df = emp_df[emp_df[sector_col] == total_sector].copy()
         pub_df = pub_df.rename(columns={occ_col: "styrk2", "value": "pub_emp"})
         all_df = all_df.rename(columns={occ_col: "styrk2", "value": "all_emp"})
         pub_df = pub_df.groupby("styrk2", as_index=False)["pub_emp"].sum()
@@ -254,28 +287,33 @@ def build_education(edu_raw: dict) -> pd.DataFrame:
     """
     df = parse_jsonstat2(edu_raw)
     occ_col = _find_dim(df, ["Yrke", "yrke", "occupation"])
-    edu_col = _find_dim(df, ["Utdnivaa", "utdnivaa", "education", "Education"])
+    edu_col = _find_dim(df, ["UtdNivaa", "Utdnivaa", "utdnivaa", "education", "Education"])
 
     df = df.dropna(subset=["value"])
     df["value"] = df["value"].astype(float)
 
-    # Filter to 4-digit codes
-    df = df[df[occ_col].str.len() == 4].copy()
+    # Prefer the most detailed occupation level present in the source table.
+    df = df[df[occ_col].str.fullmatch(r"\d+")].copy()
+    if df.empty:
+        return pd.DataFrame(columns=["styrk_code", "edu_level_mode"])
+    code_len = int(df[occ_col].str.len().max())
+    df = df[df[occ_col].str.len() == code_len].copy()
 
     # For each occupation find the education level with the most workers
     idx = df.groupby(occ_col)["value"].idxmax()
     mode_df = df.loc[idx, [occ_col, edu_col]].copy()
     mode_df = mode_df.rename(columns={occ_col: "styrk_code", edu_col: "edu_level_raw"})
 
-    # Map raw codes to readable names
-    edu_label_col = f"{edu_col}_label"
-    if edu_label_col in df.columns:
-        label_lookup = df[[edu_col, edu_label_col]].drop_duplicates().set_index(edu_col)[edu_label_col]
-        mode_df["edu_level_mode"] = mode_df["edu_level_raw"].map(label_lookup)
-    else:
-        mode_df["edu_level_mode"] = mode_df["edu_level_raw"].map(EDU_LEVEL_MAP).fillna(
-            mode_df["edu_level_raw"]
-        )
+    # Normalize raw education buckets to the frontend's categorical palette.
+    mode_df["edu_level_mode"] = mode_df["edu_level_raw"].map(EDU_LEVEL_MAP).fillna(
+        mode_df["edu_level_raw"].map({
+            "1": "lower_secondary",
+            "2": "upper_secondary",
+            "3": "bachelor",
+            "4": "master",
+            "0+9": "unspecified",
+        })
+    )
 
     return mode_df[["styrk_code", "edu_level_mode"]]
 
@@ -310,6 +348,26 @@ def _pick_code(label_to_code: dict[str, str], all_codes: list[str], hints: list[
             return hint
     # Fallback: return first code
     return all_codes[0] if all_codes else None
+
+
+def _pick_codes(label_to_code: dict[str, str], all_codes: list[str], hints: list[str]) -> list[str]:
+    """Return every matching code for the provided label hints, preserving input order."""
+    matches: list[str] = []
+    for hint in hints:
+        if hint in label_to_code:
+            matches.append(label_to_code[hint])
+        for lbl, code in label_to_code.items():
+            if hint in lbl:
+                matches.append(code)
+        if hint in all_codes:
+            matches.append(hint)
+    ordered: list[str] = []
+    seen = set()
+    for code in matches:
+        if code in all_codes and code not in seen:
+            seen.add(code)
+            ordered.append(code)
+    return ordered
 
 
 # ---------------------------------------------------------------------------
@@ -352,8 +410,19 @@ def main() -> None:
     merged["styrk2"] = merged["styrk_code"].str[:2]
     merged = merged.merge(wages_df, on="styrk2", how="left")
 
-    # Join education
-    merged = merged.merge(edu_df, on="styrk_code", how="left")
+    # Join education at the most detailed level the source table exposes.
+    if not edu_df.empty:
+        edu_code_len = int(edu_df["styrk_code"].astype(str).str.len().max())
+        if edu_code_len == 4:
+            merged = merged.merge(edu_df, on="styrk_code", how="left")
+        else:
+            merged = merged.merge(
+                edu_df.rename(columns={"styrk_code": "styrk2"}),
+                on="styrk2",
+                how="left",
+            )
+    else:
+        merged["edu_level_mode"] = None
 
     # Add major group info
     merged["major_group"] = merged["styrk_code"].str[0]

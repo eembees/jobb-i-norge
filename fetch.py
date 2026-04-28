@@ -41,7 +41,7 @@ TABLE_PARAMS: dict[str, dict] = {
         "valueCodes[Sektor]": "*",
         "valueCodes[Kjonn]": "0",           # Both sexes
         "valueCodes[AvtaltVanlig]": "0",    # All employees
-        "valueCodes[MaaleMetode]": "01",    # Median
+        "valueCodes[MaaleMetode]": "*",     # Median + number of employments
         "valueCodes[ContentsCode]": "Manedslonn",  # Monthly earnings
     },
     "education": {

@@ -201,6 +201,11 @@
     border-radius: 2px;
   }
 
+  .legend-note {
+    font-size: 0.7rem;
+    color: #64748b;
+  }
+
   #close-detail {
     float: right;
     cursor: pointer;
@@ -235,6 +240,52 @@
     padding: 32px;
     background: #0f1117;
   }
+
+  #hover-card {
+    position: absolute;
+    display: none;
+    min-width: 220px;
+    max-width: 320px;
+    padding: 10px 12px;
+    border: 1px solid rgba(167,139,250,0.3);
+    border-radius: 10px;
+    background: rgba(15,17,23,0.96);
+    box-shadow: 0 18px 40px rgba(0,0,0,0.35);
+    backdrop-filter: blur(10px);
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  #hover-card.visible {
+    display: block;
+  }
+
+  .hover-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #f8fafc;
+    line-height: 1.2;
+    margin-bottom: 8px;
+  }
+
+  .hover-meta {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    font-size: 0.76rem;
+  }
+
+  .hover-label {
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .hover-value {
+    color: #e2e8f0;
+    text-align: right;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -265,6 +316,7 @@
 <div id="treemap-container">
   <div id="loading">Loading data...</div>
   <div id="error-msg"></div>
+  <div id="hover-card"></div>
   <svg id="treemap-svg"></svg>
 </div>
 
@@ -326,12 +378,12 @@
 
     const femaleScale = d3.scaleDiverging()
       .domain([0, 0.5, 1])
-      .interpolator(d3.interpolateRdBu)
+      .interpolator(d3.interpolateRgbBasis(["#2563eb", "#f8fafc", "#dc2626"]))
       .unknown("#334155");
 
-    const publicScale = d3.scaleSequential()
-      .domain([0, 1])
-      .interpolator(d3.interpolatePurples)
+    const publicScale = d3.scaleDiverging()
+      .domain([0, 0.5, 1])
+      .interpolator(d3.interpolateRgbBasis(["#2563eb", "#f8fafc", "#16a34a"]))
       .unknown("#334155");
 
     const aiScores = data.map(d => d.ai_score).filter(v => v != null);
@@ -374,9 +426,18 @@
       }
       const wrap = document.createElement("div");
       wrap.className = "legend-item";
-      wrap.innerHTML = `<span style="font-size:0.65rem;color:#64748b">${label0}</span>`;
+      const start = document.createElement("span");
+      start.style.fontSize = "0.65rem";
+      start.style.color = "#64748b";
+      start.textContent = label0;
+      const end = document.createElement("span");
+      end.style.fontSize = "0.65rem";
+      end.style.color = "#64748b";
+      end.textContent = label1;
+      canvas.className = "legend-bar";
+      wrap.appendChild(start);
       wrap.appendChild(canvas);
-      wrap.innerHTML += `<span style="font-size:0.65rem;color:#64748b">${label1}</span>`;
+      wrap.appendChild(end);
       legend.appendChild(wrap);
     }
 
@@ -384,9 +445,16 @@
       const [lo, hi] = scales.wageScale.domain();
       bar(d3.interpolateBlues, `${Math.round(lo/1000)}k`, `${Math.round(hi/1000)}k NOK`);
     } else if (colorMode === "female") {
-      bar(d3.interpolateRdBu, "0%", "100% female");
+      bar(d3.interpolateRgbBasis(["#2563eb", "#f8fafc", "#dc2626"]), "100% male", "100% female");
     } else if (colorMode === "public") {
-      bar(d3.interpolatePurples, "0%", "100% public");
+      if (scales.hasPublicData) {
+        bar(d3.interpolateRgbBasis(["#2563eb", "#f8fafc", "#16a34a"]), "100% private", "100% public");
+      } else {
+        const note = document.createElement("div");
+        note.className = "legend-note";
+        note.textContent = "Public-sector data unavailable in this dataset";
+        legend.appendChild(note);
+      }
     } else if (colorMode === "ai" && hasAI) {
       bar(d3.interpolateRdYlGn, "0 (auto)", "10 (safe)");
     } else if (colorMode === "edu") {
@@ -405,6 +473,45 @@
 
   let selectedCode = null;
   let searchQuery = "";
+
+  function formatPercent(value) {
+    return value != null ? `${(value * 100).toFixed(1)}%` : "—";
+  }
+
+  function hoverRows(d) {
+    return [
+      ["STYRK", d.code],
+      ["Employed", d.employed != null ? d.employed.toLocaleString("no-NO") : "—"],
+      ["Median wage", d.median_monthly_wage != null ? `${d.median_monthly_wage.toLocaleString("no-NO")} kr/mnd` : "—"],
+      ["Female share", formatPercent(d.pct_female)],
+      ["Public sector", formatPercent(d.pct_public_sector)],
+      ["Education", d.edu_level_mode ? (EDU_LABELS[d.edu_level_mode] || d.edu_level_mode) : "—"],
+    ];
+  }
+
+  function showHoverCard(event, d) {
+    const card = document.getElementById("hover-card");
+    const container = document.getElementById("treemap-container");
+    const name = d.name + (d.name_no && d.name_no !== d.name ? ` / ${d.name_no}` : "");
+    const rows = hoverRows(d).map(([label, value]) =>
+      `<span class="hover-label">${label}</span><span class="hover-value">${value}</span>`
+    ).join("");
+    card.innerHTML = `<div class="hover-title">${name}</div><div class="hover-meta">${rows}</div>`;
+    const rect = container.getBoundingClientRect();
+    const x = event.clientX - rect.left + 14;
+    const y = event.clientY - rect.top + 14;
+    card.classList.add("visible");
+    const cardWidth = card.offsetWidth;
+    const cardHeight = card.offsetHeight;
+    const maxX = rect.width - cardWidth - 8;
+    const maxY = rect.height - cardHeight - 8;
+    card.style.left = `${Math.max(8, Math.min(x, maxX))}px`;
+    card.style.top = `${Math.max(8, Math.min(y, maxY))}px`;
+  }
+
+  function hideHoverCard() {
+    document.getElementById("hover-card").classList.remove("visible");
+  }
 
   function buildHierarchy(data, groupMode) {
     if (groupMode === "none") {
@@ -492,6 +599,9 @@
       .attr("fill", d => getColor(d.data, colorMode, scales))
       .classed("dimmed", d => !matchSearch(d))
       .classed("selected", d => d.data.code === selectedCode)
+      .on("mouseenter", (event, d) => showHoverCard(event, d.data))
+      .on("mousemove", (event, d) => showHoverCard(event, d.data))
+      .on("mouseleave", hideHoverCard)
       .on("click", (event, d) => {
         selectedCode = d.data.code;
         showDetail(d.data);
@@ -543,8 +653,8 @@
     document.getElementById("dp-group").textContent = d.major_group != null ? `${d.major_group} — ${d.major_group_name || ""}` : "—";
     document.getElementById("dp-employed").textContent = d.employed != null ? d.employed.toLocaleString("no-NO") : "—";
     document.getElementById("dp-wage").textContent = d.median_monthly_wage != null ? `${d.median_monthly_wage.toLocaleString("no-NO")} kr/mnd` : "—";
-    document.getElementById("dp-female").textContent = d.pct_female != null ? `${(d.pct_female * 100).toFixed(1)}%` : "—";
-    document.getElementById("dp-public").textContent = d.pct_public_sector != null ? `${(d.pct_public_sector * 100).toFixed(1)}%` : "—";
+    document.getElementById("dp-female").textContent = formatPercent(d.pct_female);
+    document.getElementById("dp-public").textContent = formatPercent(d.pct_public_sector);
     document.getElementById("dp-edu").textContent = d.edu_level_mode ? (EDU_LABELS[d.edu_level_mode] || d.edu_level_mode) : "—";
 
     const aiItem = document.getElementById("dp-ai-item");
@@ -593,6 +703,7 @@
     }
 
     const scales = buildColorScales(data);
+    scales.hasPublicData = data.some(d => d.pct_public_sector != null);
 
     let colorMode = "wage";
     let groupMode = "major";
